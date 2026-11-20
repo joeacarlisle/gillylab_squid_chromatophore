@@ -1,0 +1,90 @@
+# Default analysis settings.  A video can override any value in videos/<video_id>.toml
+# (add [analysis] or [classify] tables there).  The thresholds are PLACEHOLDERS: they were tuned on the
+# synthetic demo video and must be checked against clips that Dr. Gilly's group has labeled by hand.
+
+[analysis]
+window_s = 2.0            # length of each analysis window (frequency resolution is about 1 / window_s)
+hop_s = 0.5               # step between windows
+band_hz = [0.5, 8.0]      # frequencies considered; slower drift (lighting, swimming) is ignored
+nfft = 512                # zero-padded FFT length (interpolates the peak frequency)
+
+[classify]
+# State of a ROI in a window:
+#   quiet       signal swing (peak-to-peak, 0-1 gray units) below quiet_p2p_max
+#   flashing    swing at least flash_p2p_min AND one sharp peak (peak_conc >= flash_peak_conc_min)
+#               inside flash_freq_hz (Rosen et al. 2015 report 2-4 Hz in Humboldt squid)
+#   flickering  anything else that is above the quiet level (broadband, no single dominant frequency)
+quiet_p2p_max = 0.04
+flash_freq_hz = [1.5, 5.0]
+flash_p2p_min = 0.15
+flash_peak_conc_min = 0.55
+smooth_windows = 3        # median filter over this many windows (odd number; 1 = off)
+
+[tracking]
+# ROIs named here follow the animal (a video's own toml lists them, e.g.  [tracking]  rois = ["mantle"]).
+# The other ROIs stay fixed.  Only translation is followed; the box keeps its size.
+rois = []
+max_corners = 40          # feature points followed inside each box
+min_points = 6            # fewer reliable points than this and the box stays put and the frame is flagged as lost
+redetect_below = 12       # find new points when fewer than this are left
+fb_error_px = 1.0         # a point is kept only if tracking it backwards returns within this many pixels
+win_px = 15               # optical-flow window (pixels)
+max_lost_frac = 0.2       # a window with more than this share of lost frames is labeled 'untracked'
+
+[cycles]
+# Cycle-by-cycle flash frequency inside flashing episodes (Rosen et al. 2015: inverse of the time between cycles).
+smooth_frames = 3          # moving average before looking for peaks
+min_prominence_frac = 0.3  # a peak must stand out by this share of the episode's swing
+
+[pauses]
+# Pauses = the signal stops changing (Rosen et al. 2015: rolling standard deviation).  PLACEHOLDERS, like the rest.
+window_s = 0.4             # rolling window for the frame-to-frame change
+below_frac = 0.25          # below this share of the flickering level counts as paused
+min_s = 0.3                # shortest pause kept
+context_s = 1.0            # look this far back to ask whether the signal was active before the pause
+follow_s = 1.5             # look this far ahead for a flashing episode
+
+[synchrony]
+# Grid ROIs (a video's own toml: [grids]  name = [x, y, width, height, rows, columns]) give a spatial synchrony index.
+min_std = 0.01             # a box must vary at least this much (std, 0-1 gray units) in a window to count
+
+[chromas]
+# CHROMAS lives in its own project and virtual environment (different Python and OpenCV); see chromas_bridge.py.
+home = "../gillylab_chromas"   # relative to this project; env var GL_CHROMAS_HOME overrides it
+method = "neuralnet"               # segmentation: neuralnet (default weights), lookup (no neural network), randomforest
+focus_threshold = 0.01             # CHROMAS focus check; frames below it are dropped from the analysis
+n_workers = 2                      # Dask workers for chromas run; each gets (memory / n_workers). 1 = all memory for one worker
+                                   # (slowest, safest); 1920x1080 video needs ~4-6 GB to segment 150 frames, more than the
+                                   # 4 workers of CHROMAS's own default get. If a run dies with 'ran out of memory', set 1
+weights = "models/sepia_2classes_fcn_resnet50.pth"   # network for the neuralnet method (relative to this project;
+                                   # stored with Git LFS). Missing or not downloaded: the copy in <home>/model_weights/ is used
+
+[activation]
+# chromas_activation.py: activation events, neighbour coupling and waves on CHROMAS results.  A file passed with
+# --config (e.g. examples/<name>/example.toml) can override any value in its own [activation] table.
+px_per_mm = 0.0            # pixels per mm in the CHROMAS master frame; 0 = unknown (distances in pixels only)
+roi = []                   # [x, y, width, height] in master-frame pixels; empty = whole frame
+baseline_pct = 10.0        # resting size = this percentile of a chromatophore's area
+min_baseline_px = 20.0     # chromatophores smaller than this at rest are left out
+max_missing_frac = 0.1     # left out if the area is missing (0) in more than this share of frames
+smooth_s = 0.2             # smoothing window (Savitzky-Golay) for the expansion rate
+onset_z = 4.0              # an event starts when the expansion rate exceeds this many noise sigmas ...
+noise_from = "all"        # noise of the rate from the whole recording; "rest" = quietest 30 % of frames (better for
+                           # recordings in which chromatophores are active most of the time)
+min_amplitude = 0.10       # ... and counts if the chromatophore grows by at least this share of its resting size
+min_gap_s = 0.2            # events of one chromatophore closer than this are merged
+neighbour_factor = 1.6     # Delaunay neighbours; edges longer than this times the median edge are dropped
+neighbour_radius_mm = 0.0  # > 0 (with px_per_mm set): neighbours = centres closer than this instead
+coincidence_s = 0.2        # two events coincide when their onsets are this close
+max_lag_s = 0.5            # pathway link: a neighbour's onset follows within this time
+min_wave_size = 4          # a wave needs at least this many chromatophores (and more than chance gives)
+min_wave_r2 = 0.5          # plane fit of onset time against position: below this R^2 the wave has no clear direction
+n_permutations = 999       # permutation test of neighbour coupling
+prominence_range_frac = 0.15   # cross-check event detector: a peak counts if its prominence is at least this share of
+                           # the chromatophore's own range, and at least min_amplitude (after Renard et al. 2026)
+rhythm_band_hz = [0.5, 8.0]    # band searched for the patch's dominant rhythm (Humboldt squid flashing is 2 to 4 Hz)
+rhythm_share = 0.5         # the rhythm is called clear when this share of the band's power lies within 15 % of the
+                           # peak frequency, and the peak is not at the band's edge (placeholder)
+sync_trim_s = 1.0          # the whole-patch synchrony test leaves out this much at each end of the recording (at most
+                           # a tenth of it): filter edges and the start of activity are shared by all chromatophores
+seed = 1
