@@ -1,0 +1,42 @@
+# Virtual environment
+.venv/
+
+# JetBrains tools
+.idea/
+.junie/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Generated output, databases, datasets and zarr files
+processed/
+logs/
+output/
+data/
+training/
+training_runs/
+*.duckdb
+*.zarr
+
+# Backups, Word files, network weights (see README: Network weights)
+*.bak*
+*.docx
+*.dotx
+~$*
+models/*.pth
+
+# Videos (the synthetic demo and the small real test clips) are kept in git. If clips get large (tens of MB), use Git LFS
+# (git lfs track "videos/*.mp4") or add them back here.
+
+# Your own videos (added in the dashboard or copied to videos/). The demo and the jeb114157 clips stay tracked.
+videos/*
+!videos/.gitkeep
+!videos/demo_two_squid*
+!videos/jeb114157_*
+
+# OS files
+.DS_Store
+Thumbs.db

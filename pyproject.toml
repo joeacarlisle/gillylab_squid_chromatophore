@@ -1,0 +1,47 @@
+[project]
+name = "gl-squid-chromatophore"
+version = "0.1.0"
+description = "Gilly Lab squid chromatophore video analysis: a Panel/HoloViews dashboard around CHROMAS, plus a separate Signal add-on for flashing and flickering"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+authors = [
+    {name = "Joe Carlisle", email = "joeacarlisle@gmail.com"},
+]
+
+dependencies = [
+    "numpy~=2.5.0",
+    "pandas~=3.0.3",
+    "scipy~=1.18.0",
+    "duckdb~=2.0.0",   # the database file format changes between major versions; a 2.0 file cannot be opened by 1.x
+    # Video reading (headless build: no GUI libraries needed)
+    "opencv-python-headless~=5.0.0",
+    # Bundled ffmpeg, used only to write the synthetic demo video as H.264 (plays in every browser)
+    "imageio-ffmpeg~=0.8.1",
+    # Dashboard
+    "bokeh~=3.9.1",
+    "holoviews~=1.23.1",
+    "panel~=1.9.3",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+# The modules live at the project root (no src/ layout).
+[tool.setuptools]
+py-modules = [
+    "main",
+    "chroma_analysis",
+    "roi_tracker",
+    "make_demo_video",
+    "chromatophore_holoviews",
+    "chromas_bridge",
+    "chromas_export",
+    "chromas_view",
+    "lookup_picker",
+    "make_fake_chromas",
+    "chromas_activation",
+    "activation_view",
+    "chromas_training",
+    "chromas_score_segmentation",
+]
