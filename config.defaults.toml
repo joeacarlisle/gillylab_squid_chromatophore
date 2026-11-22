@@ -51,7 +51,7 @@ min_std = 0.01             # a box must vary at least this much (std, 0-1 gray u
 [chromas]
 # CHROMAS lives in its own project and virtual environment (different Python and OpenCV); see chromas_bridge.py.
 home = "../gillylab_chromas"   # relative to this project; env var GL_CHROMAS_HOME overrides it
-method = "neuralnet"               # segmentation: neuralnet (default weights), lookup (no neural network), randomforest
+method = "lookup"                  # segmentation: lookup (no neural network), neuralnet (default weights), randomforest
 focus_threshold = 0.01             # CHROMAS focus check; frames below it are dropped from the analysis
 min_chunk_frames = 100            # shortest in-focus stretch (frames) kept as a chunk; a short video needs less
 n_workers = 3                      # Dask workers for chromas run; each gets (memory / n_workers). 1 = all memory for one worker

@@ -39,7 +39,7 @@ PROCESSED_DIR = BASE_DIR / 'processed'
 EXPORT_DIR = PROCESSED_DIR / 'chromas_export'
 CHROMAS_DB_PATH = PROCESSED_DIR / 'gl_chromas.duckdb'
 EXPORT_SCRIPT = BASE_DIR / 'chromas_export.py'
-METHODS = ['neuralnet', 'lookup', 'randomforest']
+METHODS = ['lookup', 'neuralnet', 'randomforest']
 # `chromas run` prints a screenful of harmless click warnings (options it declares twice) that would bury real errors.
 _NOISE = re.compile(r'UserWarning: The parameter .* is used more than once|^\s+(self\.|parser = |pieces = )|'
                     r'SyntaxWarning|^\s+weights = |'
@@ -98,7 +98,7 @@ def settings():
     return {'home': home, 'chromas_exe': scripts / f'chromas{ext}', 'python_exe': scripts / f'python{ext}',
             'data_dir': home / 'data', 'output_dir': home / 'output',
             'weights': weights,
-            'method': cfg.get('method', 'neuralnet'), 'focus_threshold': float(cfg.get('focus_threshold', 0.01)),
+            'method': cfg.get('method', 'lookup'), 'focus_threshold': float(cfg.get('focus_threshold', 0.01)),
             'min_chunk_frames': int(cfg.get('min_chunk_frames', 100)),
             'n_workers': int(cfg.get('n_workers', 2))}
 

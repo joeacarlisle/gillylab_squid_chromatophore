@@ -219,10 +219,11 @@ class ColourPicker(param.Parameterized):
 
         self.panel = pn.Column(
             pn.pane.Markdown(
-                '**Check the suggested colours, fix them if needed, then run.** Loading a frame suggests colours from the '
-                'frame itself: its colours are sorted into groups; the biggest group is the background, groups close to it '
-                '(glare, haze, a halo) are more background, and the rest are chromatophore. The picture on the right shows '
-                'the result. Correct it by clicking on the frame on the left: mark **Background** wherever chromatophore '
+                '**Click the colours yourself, check the preview, then run.** Press **Load video**, then click on the frame on '
+                'the left. Or press **Suggest colours** (it replaces your clicks): the frame\'s colours are sorted into '
+                'groups; the biggest group is the background, groups close to it (glare, haze, a halo) are more '
+                'background, and the rest are chromatophore. The picture on the right shows the result. Correct it by '
+                'clicking on the frame on the left: mark **Background** wherever chromatophore '
                 'colour has spread into the background, and **Chromatophore** on any pigment that is missing, in its dark '
                 'centre, not its soft edge. More **Colour groups** finds finer colours; a higher **Background tolerance** '
                 'counts more of the groups as background. Move the slider to check other frames before you run: the table '
@@ -311,10 +312,11 @@ class ColourPicker(param.Parameterized):
         self.slider.end = max(f['duration'] - 1.0 / f['fps'], 0.1)
         self.slider.step = round(1.0 / f['fps'], 4)
         self._build_plot()
-        if self.clicks:
-            self._changed()
-        else:
-            self._suggest()                                    # start from a default, not from nothing
+        self._changed()
+        if not self.clicks:
+            self._show('Click the frame on the left: **Background** first, then at least one **Chromatophore**, and the '
+                       'preview appears. Or press **Suggest colours** to start from colours found in the frame '
+                       '(it replaces any clicks you have made).', 'info')
 
     def _keep_clicks(self):
         """Store the clicks as they are now (with your own changes) in the suggestion being shown."""
