@@ -108,6 +108,8 @@ def run_form():
     # a drop-down of the videos in the CHROMAS data folder; any other file name or full path can still be typed
     video_in = pn.widgets.AutocompleteInput(name='Video (file name or full path)', options=cb.source_video_names(st), restrict=False,
                                             case_sensitive=False, min_characters=0, placeholder='example.mp4', width=420)
+    refresh_videos_btn = pn.widgets.Button(name='Refresh', width=80)
+    refresh_videos_btn.on_click(lambda _: setattr(video_in, 'options', cb.source_video_names(st)))   # a video added to the data folder
     name_in = pn.widgets.TextInput(name='Dataset name (empty = the video name)', value='', width=240,
                                    placeholder='e.g. chromas_example')
     method_in = pn.widgets.Select(name='Segmentation', options=cb.METHODS, value=st['method'], width=200)
@@ -247,7 +249,7 @@ def run_form():
                                 sizing_mode='stretch_width') if problems else
                   pn.pane.Markdown(f'CHROMAS found in `{st["home"]}`. Videos go in `{st["data_dir"]}`.'))
     return pn.Column(pn.pane.Markdown('### Run CHROMAS on a video'), setup_note,
-                     pn.Row(video_in, name_in, method_in, focus_in, minchunk_in, pn.Column(pn.Spacer(height=22), gpu_in)),
+                     pn.Row(video_in, pn.Column(pn.Spacer(height=22), refresh_videos_btn), name_in, method_in, focus_in, minchunk_in, pn.Column(pn.Spacer(height=22), gpu_in)),
                      pn.pane.Markdown(
                          'A file name is looked for in the CHROMAS data folder, `videos/` and `examples/<name>/`; '
                          '`.mp4` may be left off. **Lookup** labels pixels by colour, so it needs colours from this '
