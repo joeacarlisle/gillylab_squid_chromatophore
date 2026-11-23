@@ -967,6 +967,39 @@ def list_datasets():
         con.close()
 
 
+AREA_SUMMARY_SQL = """
+WITH pos AS (SELECT dataset_id, chunk, chromatophore, area FROM chromas_areas WHERE area > 0)
+SELECT 'all' AS kind, dataset_id, NULL::INTEGER AS chunk, count(DISTINCT chromatophore) AS n, NULL::DOUBLE AS med
+  FROM pos GROUP BY dataset_id
+UNION ALL
+SELECT 'chunk', dataset_id, chunk, count(DISTINCT chromatophore), median(area) FROM pos GROUP BY dataset_id, chunk
+UNION ALL
+SELECT 'focus', dataset_id, NULL, count(*), NULL FROM chromas_focus GROUP BY dataset_id
+"""
+
+
+def area_summary():
+    """{dataset_id: {'measured': n, 'chunks': {chunk: (n measured, median area)}, 'focus_rows': n}} for every dataset in
+    the database, from one query.  'Measured' means an area above 0 in at least one frame."""
+    if not CHROMAS_DB_PATH.exists():
+        return {}
+    con = connect(read_only=True)
+    try:
+        rows = con.execute(AREA_SUMMARY_SQL).fetchall()
+    finally:
+        con.close()
+    out = {}
+    for kind, ds, chunk, n, med in rows:
+        d = out.setdefault(ds, {'measured': 0, 'chunks': {}, 'focus_rows': None})
+        if kind == 'all':
+            d['measured'] = int(n)
+        elif kind == 'chunk':
+            d['chunks'][int(chunk)] = (int(n), float(med))
+        else:
+            d['focus_rows'] = int(n)
+    return out
+
+
 # ── Command line ─────────────────────────────────────────────────────────────────
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])

@@ -208,7 +208,7 @@ A separate add-on (the **Signal** tab) for distant footage of a whole animal, su
 ### Using it
 
 1. Put an H.264 `.mp4` in `videos/` (browsers play only H.264). To convert another format: `ffmpeg -i input.mov -c:v libx264 -pix_fmt yuv420p videos/<video_id>.mp4`. The video id is the file name without `.mp4`.
-2. Open the **Signal** tab, choose the video in **Analyse a video in videos/** (or type the full path of a file elsewhere) and press **Add and analyse**. The video plays at the top, with the signal and detected states, spectrogram, episodes, phase and tracking below it, and a Setup section that shows the ROI boxes on the first frame.
+2. Open the **Signal** tab, choose the video in **Analyse a video in gillylab_squid_chromatophore\videos\\** (or type the full path of a file elsewhere) and press **Add and analyse**. The video plays at the top, with the signal and detected states, spectrogram, episodes, phase and tracking below it, and a Setup section that shows the ROI boxes on the first frame.
 3. Without a `.toml` file the analysis uses one box over the whole frame. To measure particular patches, edit `videos/<video_id>.toml` and analyse the video again. It has one box per animal, as `name = [x, y, width, height]` in pixels from the top-left corner of the frame:
 
         [rois]

@@ -77,9 +77,6 @@ def _zarrs(extra_dir=None):
     return found
 
 
-_SUMMARY_CACHE = {}
-
-
 def _mtime(path):
     try:
         return path.stat().st_mtime
@@ -91,14 +88,11 @@ def _slash(values):
     return ' / '.join(str(v) for v in values)
 
 
-def run_summary(exp):
-    """What the Datasets table says about how good a run is, read from an export folder (info.json, areas.csv,
-    focus.csv, run_info.json, extras/extras.json).  The areas file is large, so the result is kept until a file changes."""
-    files = [exp / n for n in ('info.json', 'areas.csv', 'focus.csv', 'run_info.json', 'extras/extras.json')]
-    sig = tuple(_mtime(f) for f in files)
-    hit = _SUMMARY_CACHE.get(exp)
-    if hit and hit[0] == sig:
-        return hit[1]
+def run_summary(exp, db=None):
+    """What the Datasets table says about how good a run is.  The counts of measured chromatophores, median areas and
+    focus rows come from the database (`db`: this dataset's entry of chromas_bridge.area_summary(), None when the
+    dataset is not loaded); the rest from small files of the export folder (info.json, run_info.json,
+    extras/extras.json).  The areas and focus CSV files are not read."""
     out = {}
     try:
         info = json.loads((exp / 'info.json').read_text(encoding='utf-8'))
@@ -109,17 +103,13 @@ def run_summary(exp):
         out['in focus'] = f"{info.get('n_frames', '')}"
         out['ranges'] = ' | '.join(f"{c['start_frame']}-{c['start_frame'] + c['n_frames'] - 1}" for c in chunks)
         out['agree'] = ('yes' if len(set(numbered)) <= 1 else 'NO: numbered ' + _slash(numbered)) if numbered else ''
-        try:                                                # the whole video: every frame has a row in focus.csv
-            focus = pd.read_csv(exp / 'focus.csv', usecols=['frame'])
-            out['in focus'] = f"{info.get('n_frames', '')} of {len(focus)}"
-        except (OSError, ValueError):
-            pass
-        areas = pd.read_csv(exp / 'areas.csv', usecols=['chunk', 'chromatophore', 'area'])
-        pos = areas[areas['area'] > 0]
-        out['measured'] = int(pos['chromatophore'].nunique())
-        per_chunk = [(int(c['chunk']), pos[pos['chunk'] == int(c['chunk'])]) for c in chunks]
-        out['measured per chunk'] = _slash(d['chromatophore'].nunique() for _, d in per_chunk)
-        out['median area'] = _slash(int(round(d['area'].median())) if len(d) else 0 for _, d in per_chunk)
+        if db is not None:
+            if db.get('focus_rows') is not None:            # the whole video: every frame has a focus row
+                out['in focus'] = f"{info.get('n_frames', '')} of {db['focus_rows']}"
+            out['measured'] = db['measured']
+            per_chunk = [db['chunks'].get(int(c['chunk']), (0, 0.0)) for c in chunks]
+            out['measured per chunk'] = _slash(n for n, _ in per_chunk)
+            out['median area'] = _slash(int(round(m)) if n else 0 for n, m in per_chunk)
     except (OSError, ValueError, KeyError):
         pass
     try:
@@ -139,7 +129,6 @@ def run_summary(exp):
     for key, name in (('slices', 'slice step'), ('clusters', 'grouping'), ('motor_units', 'motor units')):
         out[name] = ('stale' if stale else 'yes') if found.get(key) else 'no'
     out['colours'] = (exp / 'lookup_table.npz').exists()
-    _SUMMARY_CACHE[exp] = (sig, out)
     return out
 
 
@@ -153,6 +142,7 @@ def inventory(extra_dir=None):
     zarrs = _zarrs(extra_dir)
     exported = {d.name: d for d in ca.EXPORT_DIR.iterdir() if (d / 'info.json').exists()} if ca.EXPORT_DIR.exists() else {}
     in_db = {r[0]: r for r in cb.list_datasets()}
+    stats = cb.area_summary()
     names = sorted(set(zarrs) | set(exported) | set(in_db))
     rows = []
     for n in names:
@@ -171,7 +161,7 @@ def inventory(extra_dir=None):
         else:
             todo = 'Done'
         db = in_db.get(n)
-        sm = run_summary(exp) if exp else {}
+        sm = run_summary(exp, stats.get(n)) if exp else {}
         method = (db[4] or '') if db else ''
         measured = sm.get('measured')
         rows.append({'dataset': n, 'CHROMAS result (.zarr)': str(zarrs[n]) if n in zarrs else '',
@@ -225,10 +215,6 @@ def datasets_panel(dataset_sel=None):
     import_btn = pn.widgets.Button(name='Import from CHROMAS (.zarr)', button_type='primary',
                                    disabled=bool(problems))
     load_btn = pn.widgets.Button(name='Load exported results')
-    path_in = pn.widgets.TextInput(name='Or import one CHROMAS result by path (.zarr folder)', width=520,
-                                   placeholder=r'e.g. C:\Users\me\gillylab_chromas\output\clip.zarr')
-    name_in = pn.widgets.TextInput(name='Dataset name (empty = folder name)', width=240)
-    path_btn = pn.widgets.Button(name='Import this .zarr', disabled=bool(problems))
     remove_btn = pn.widgets.Button(name='Remove from dashboard', button_type='warning')
     zarr_btn = pn.widgets.Button(name='Delete CHROMAS result (.zarr)', button_type='danger')
     confirm_text = pn.pane.Markdown('', sizing_mode='stretch_width')
@@ -386,19 +372,6 @@ def datasets_panel(dataset_sel=None):
         poller()
         _start(run, f'Loading {", ".join(todo)}')
 
-    def _import_path(_):
-        p = Path(path_in.value.strip().strip('"'))
-        if not path_in.value.strip() or not p.is_dir():
-            _say(f'Failed: not a folder: {p}')
-            return
-        name, method = name_in.value.strip() or p.stem, _method()
-        def run():
-            got = cb.import_dataset(p, name, method=method, log=_log)
-            dataset_state.bump(select=got)
-            return f'imported "{got}".'
-        poller()
-        _start(run, f'Importing {p.name}')
-
     def _close_confirm(*_):
         pend.update(kind=None, names=[])
         confirm_box.visible = False
@@ -543,7 +516,7 @@ def datasets_panel(dataset_sel=None):
             elif idle >= 30:
                 text += f' - no new output for {idle // 60}:{idle % 60:02d} (press Stop if this is too long)'
             job_text.object = text
-        for b in (import_btn, path_btn, extras_btn, slice_btn, cluster_btn, units_btn, area_btn, video_btn):
+        for b in (import_btn, extras_btn, slice_btn, cluster_btn, units_btn, area_btn, video_btn):
             b.disabled = running or bool(problems)
         load_btn.disabled = running
         for b in (remove_btn, zarr_btn, confirm_btn):
@@ -570,7 +543,6 @@ def datasets_panel(dataset_sel=None):
     zarr_btn.on_click(_ask_zarr)
     confirm_btn.on_click(_confirm)
     cancel_btn.on_click(_close_confirm)
-    path_btn.on_click(_import_path)
     extra_in.param.watch(_refresh, 'value')
     if pn.state.curdoc is not None:
         pn.state.onload(lambda: (_poll(), poller() if _job['running'] else None))   # show a job already going
@@ -621,5 +593,4 @@ def datasets_panel(dataset_sel=None):
                          'into a `_deleted` folder (recoverable) and asks you to type its name. Example '
                          'datasets (named after a folder in `examples/`) are never removed.', sizing_mode='stretch_width'),
         pn.Row(remove_btn, zarr_btn), confirm_box,
-        pn.Row(path_in, name_in, pn.Column(pn.Spacer(height=22), path_btn)),
         status, log_view, sizing_mode='stretch_width')

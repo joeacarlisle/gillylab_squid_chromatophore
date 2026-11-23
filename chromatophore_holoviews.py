@@ -407,7 +407,10 @@ def _video_files():
     return sorted(f.name for f in VIDEO_DIR.glob('*.mp4'))
 
 
-add_sel = pn.widgets.Select(name='Analyse a video in videos/', options=[''] + _video_files(), value='', width=270)
+# The folder path is too long for one line of the 270 px sidebar, so the label is a separate pane that wraps.
+add_label = pn.pane.HTML('Analyse a video in<br>gillylab_squid_chromatophore\\videos\\', width=270, margin=(5, 10, 0, 10),
+                         styles={'overflow-wrap': 'anywhere'})
+add_sel = pn.widgets.Select(name='', options=[''] + _video_files(), value='', width=270, margin=(0, 10, 5, 10))
 add_in = pn.widgets.TextInput(name='or a file elsewhere (full path)', placeholder=r'C:\videos\my_squid.mp4', width=270)
 add_btn = pn.widgets.Button(name='Add and analyse', button_type='primary', width=270)
 add_status = pn.pane.Alert('', alert_type='info', visible=False, width=270)
@@ -500,7 +503,7 @@ def _add_click(_):
 add_btn.on_click(_add_click)
 
 flashing_side = pn.Column(video_select, pn.pane.Markdown('**Regions of interest**', margin=(10, 10, 0, 10)), roi_select,
-                          truth_toggle, pn.Spacer(height=10), add_sel, add_in, add_btn, add_status)
+                          truth_toggle, pn.Spacer(height=10), add_label, add_sel, add_in, add_btn, add_status)
 chromas_side = pn.Column(dataset_sel, dataset_info,
                          pn.pane.Markdown('*The video and regions of interest belong to the **Signal** tab and appear here '
                                           'when it is open.*', width=270))
