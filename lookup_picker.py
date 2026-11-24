@@ -472,6 +472,12 @@ class ColourPicker(param.Parameterized):
             self._show(problem, 'danger')
             return
         name = self.name_in.value.strip() if self.name_in is not None else ''
+        used = cb.dataset_in_use(name or video.stem)
+        if used:                                                    # before saving, so that dataset's table is not replaced
+            self._show(f'A dataset named "{name or video.stem}" already exists ({"; ".join(used)}). Type a new name in the '
+                       f'Dataset name box, for example "{cb.free_dataset_name(name or video.stem)}", or delete the old '
+                       'dataset in the Datasets table first.', 'warning')
+            return
         final = out / f'{name or video.stem}.lookup_table.npz'      # named after the dataset, so another run's table is not replaced
         save_table(final, self.table)
         error = self.on_run(final)

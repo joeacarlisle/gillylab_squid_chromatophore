@@ -158,7 +158,10 @@ def run_form():
                 _job['status'] = 'Failed: enter a video first.'
             _poll()
             return
-        weights, new_lookup = weights_in.value.strip(), False     # lookup: the table saved for this video, else CHROMAS's own window
+        weights = weights_in.value.strip()
+        # Run CHROMAS with lookup always opens CHROMAS's own clicking window: no saved table is reused.  The colour
+        # picker passes its table in the model file box, so a run started from the picker uses those colours.
+        new_lookup = method_in.value == 'lookup' and not weights
         with _job_lock:
             _job.update(running=True, log=[], status='Running CHROMAS. A long video can take hours; this page stays usable.',
                         started=time.time(), stopping=False)
@@ -196,7 +199,12 @@ def run_form():
     window_note = pn.pane.Markdown(
         'CHROMAS opens its own window on the **first frame** of the video, as it does by itself (this project no longer '
         'changes the frame). Click the **background first, then at least one chromatophore**, then press Q. Only the '
-        'first click is background: any later click is a chromatophore class. The table is kept for the video. To choose the colours on any frame, with a preview and with all '
+        'first click is background: any later click is a chromatophore class. **Run CHROMAS** with lookup works as `chromas run` '
+        'does: it opens this window every time (a table saved earlier is not reused), and CHROMAS saves the clicked table '
+        'as lookup_table.npz in its output folder (replaced by the next run) and inside the dataset; this project keeps a '
+        'copy with the dataset\'s export (processed/chromas_export/<name>/lookup_table.npz). A run '
+        'never replaces an existing dataset: if the name is taken, it stops before the window opens and suggests a free '
+        'name. To choose the colours on any frame, with a preview and with all '
         'background clicks counted as background, use the panel above.', sizing_mode='stretch_width')
     window_card = pn.Card(window_note, title='Or let CHROMAS open its own clicking window', collapsed=True,
                           sizing_mode='stretch_width')

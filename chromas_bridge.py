@@ -265,6 +265,38 @@ def find_video(video, st=None):
                                f'The CHROMAS data folder ({st["data_dir"]}) has no videos.'))
 
 
+def dataset_in_use(dataset_id, st=None):
+    """Where a dataset of this name already exists: its .zarr in the CHROMAS output folder, its export folder, its rows
+    in gl_chromas.duckdb.  An empty list means the name is free, so a run under it replaces nothing."""
+    st = st or settings()
+    found = []
+    if (st['output_dir'] / f'{dataset_id}.zarr').exists():
+        found.append(f'CHROMAS result {dataset_id}.zarr')
+    if (EXPORT_DIR / dataset_id).exists():
+        found.append(f'export folder processed/chromas_export/{dataset_id}')
+    if CHROMAS_DB_PATH.exists():
+        try:
+            con = connect(read_only=True)
+            try:
+                n = con.execute('SELECT count(*) FROM chromas_runs WHERE dataset_id = ?', (dataset_id,)).fetchone()[0]
+            finally:
+                con.close()
+            if n:
+                found.append('rows in gl_chromas.duckdb')
+        except duckdb.Error:
+            pass                    # the database cannot be read just now: the two checks above still apply
+    return found
+
+
+def free_dataset_name(dataset_id, st=None):
+    """The first of <id>_2, <id>_3, ... that no dataset uses yet (a suggestion for the Dataset name box)."""
+    st = st or settings()
+    k = 2
+    while dataset_in_use(f'{dataset_id}_{k}', st):
+        k += 1
+    return f'{dataset_id}_{k}'
+
+
 def saved_lookup_table(dataset_id, st=None):
     """A lookup table already made for this video: examples/<id>/lookup_table.npz (made by hand for the examples),
     else <CHROMAS output>/<id>.lookup_table.npz (kept after an earlier run whose clicks worked), else None."""
@@ -315,11 +347,15 @@ def lookup_table_problem(table, video, frame=None):
 
 def run_pipeline(video, name=None, method=None, focus_threshold=None, gpu=False, weights=None, log=print,
                  new_lookup=False, min_chunk_frames=None):
-    """Run `chromas run` on a video.  Returns the dataset (.zarr folder), its id and the video path used.
+    """Run `chromas run` on a video.  Returns the dataset (.zarr folder), its id, the video path used and the lookup
+    table that made it (None for the other methods).
 
-    Lookup method: a table saved for this video (saved_lookup_table) is used without clicking unless new_lookup is
-    set; after clicking, the table is kept as <id>.lookup_table.npz for the next run.  When a run with clicked colours
-    fails, the table is checked on the first frame and a message says if the clicks were the cause."""
+    Lookup method: with new_lookup (the dashboard's Run CHROMAS) it works as `chromas run` does by itself: CHROMAS opens
+    its clicking window and saves the table as lookup_table.npz in its output folder (and inside the dataset), and
+    nothing else is written there.  Without new_lookup (the command line of this file) a table saved for this video
+    (saved_lookup_table) is used without clicking, and after clicking the table is also kept as <id>.lookup_table.npz
+    for the next run.  When a run with clicked colours fails, the table is checked on the first frame and a message
+    says if the clicks were the cause."""
     st = settings()
     bad = check_install(st)
     if bad:
@@ -329,6 +365,12 @@ def run_pipeline(video, name=None, method=None, focus_threshold=None, gpu=False,
     if name and not re.fullmatch(r'[A-Za-z0-9_.-]+', name):
         raise RuntimeError(f'The dataset name "{name}" may use only letters, digits, "_", "-" and "." (no spaces: they '
                            'break ffmpeg and CHROMAS).')
+    dataset_id = name or video.stem
+    used = dataset_in_use(dataset_id, st)
+    if used:                        # checked before CHROMAS starts (and before its clicking window opens)
+        raise RuntimeError(f'A dataset named "{dataset_id}" already exists ({"; ".join(used)}). This run would replace '
+                           f'it, so it was not started. Type a new name in the Dataset name box, for example '
+                           f'"{free_dataset_name(dataset_id, st)}", or delete the old dataset in the Datasets table first.')
     weights_file = None
     if method == 'neuralnet':
         # The chromas package ships without trained weights (its default path points to a file that is not installed).
@@ -362,12 +404,8 @@ def run_pipeline(video, name=None, method=None, focus_threshold=None, gpu=False,
             "for 'Figure 1'). Click the BACKGROUND FIRST, then one or two chromatophores, then press Q. More windows "
             'follow; close each one. The run waits until you do. The table is saved as lookup_table.npz next to the '
             'dataset; pass it as the weights file to skip this next time.')
-    dataset_id = name or video.stem
     st['output_dir'].mkdir(parents=True, exist_ok=True)
-    zarr_path = st['output_dir'] / f'{dataset_id}.zarr'
-    if zarr_path.exists():
-        log(f'NOTE: a dataset named "{dataset_id}" already exists and will be replaced by this run. Give the run another '
-            'dataset name to keep it.')
+    zarr_path = st['output_dir'] / f'{dataset_id}.zarr'     # a new name: dataset_in_use() was checked above
     # In `chromas run` the flags of the single steps become options that take a value, so a bare
     # `--force-overwrite` swallows the next argument and fails with exit code 2: they need `true`.
     cmd = [st['chromas_exe'], 'run', video, '--output-name', zarr_path, '--force-overwrite', 'true',
@@ -393,17 +431,19 @@ def run_pipeline(video, name=None, method=None, focus_threshold=None, gpu=False,
             if problem:
                 raise RuntimeError(problem) from None
         raise
+    used_table = weights_file if method == 'lookup' else None
     if clicked and table.exists() and table.stat().st_mtime >= started - 1:
-        keep = st['output_dir'] / f'{dataset_id}.lookup_table.npz'
-        import shutil
-        shutil.copy2(table, keep)
-        log(f'Lookup table kept as {keep.name}: the next run of this video uses it without clicking.')
+        used_table = table                                  # the table CHROMAS saved from this run's clicks
+        if not new_lookup:                                  # command line only: keep it for the next run of this video
+            keep = st['output_dir'] / f'{dataset_id}.lookup_table.npz'
+            shutil.copy2(table, keep)
+            log(f'Lookup table kept as {keep.name}: the next command-line run of this video uses it without clicking.')
     # `chromas run` can print an error from one of its steps and still exit normally, so check what it wrote.
     if not zarr_path.exists():
         raise RuntimeError(f'CHROMAS finished but wrote no dataset ({zarr_path.name}). Read its output above for the '
                            'step that failed. Typical causes: no in-focus stretch of at least 100 frames in the video '
                            '(lower the Focus threshold or the Min chunk box), or video too distant or low in contrast.')
-    return zarr_path, dataset_id, video
+    return zarr_path, dataset_id, video, used_table
 
 
 def export_dataset(zarr_path, dataset_id, log=print):
@@ -807,12 +847,14 @@ def run_and_import(video, name=None, method=None, focus_threshold=None, gpu=Fals
                    new_lookup=False, min_chunk_frames=None):
     """The whole chain: chromas run, export, load.  Returns the dataset id."""
     st = settings()
-    zarr_path, dataset_id, video = run_pipeline(video, name, method, focus_threshold, gpu, weights, log, new_lookup, min_chunk_frames)
+    zarr_path, dataset_id, video, used_table = run_pipeline(video, name, method, focus_threshold, gpu, weights, log,
+                                                            new_lookup, min_chunk_frames)
     done = import_dataset(zarr_path, dataset_id, video_path=video, method=method or st['method'], log=log)
     update_run_info(dataset_id, areas_utc=datetime.now(timezone.utc).isoformat(timespec='seconds'))
     if (method or st['method']) == 'lookup':
-        # keep the colours that made this result with the result, so it can be told later which colours were used
-        src = Path(weights) if weights else (saved_lookup_table(dataset_id, st) or saved_lookup_table(Path(video).stem, st))
+        # keep the colours that made this result with the result (in this project's export folder, not in CHROMAS's
+        # output folder), so it can be told later which colours were used
+        src = used_table
         if src and Path(src).is_file():
             try:
                 shutil.copy2(src, EXPORT_DIR / dataset_id / 'lookup_table.npz')
