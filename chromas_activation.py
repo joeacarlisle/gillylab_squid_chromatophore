@@ -67,7 +67,7 @@ DEFAULTS = {
     'max_missing_frac': 0.1,     # more frames than this with no area (0): left out
     'smooth_s': 0.2,             # Savitzky-Golay smoothing window for the expansion rate
     'onset_z': 4.0,              # an event starts when the rate exceeds this many noise sigmas
-    'noise_from': 'all',         # noise of the rate from all frames ('all') or the quietest 30 % of frames ('rest')
+    'noise_from': 'rest',        # noise of the rate from the quietest 30 % of frames ('rest') or from all frames ('all')
     'min_amplitude': 0.10,       # and counts only if the chromatophore grows by this share of its resting size
     'min_gap_s': 0.2,            # events of one chromatophore closer than this are merged
     'neighbour_factor': 1.6,     # Delaunay edges longer than this times the median edge are not neighbours
@@ -205,7 +205,7 @@ def detect_events(rel, rate, times, cfg):
     # Noise of the rate, measured where the chromatophore is near rest (lowest 30 % of its size), so a recording
     # in which it is active most of the time does not inflate the threshold.
     rest = rel <= np.nanpercentile(rel, 30)
-    if cfg.get('noise_from', 'all') == 'rest' and rest.sum() >= 10:
+    if cfg.get('noise_from', 'rest') == 'rest' and rest.sum() >= 10:
         sig = robust_sigma(rate[rest])
     else:
         sig = robust_sigma(rate)                    # 'all': the whole recording

@@ -68,6 +68,39 @@ def _configs():
     return {NO_CONFIG: None, **{f'examples/{p.parent.name}': p for p in found}}
 
 
+def _activity_order(res, ev):
+    """Chromatophores with events, largest activity first: each one's largest event growth in pixels (relative
+    amplitude x resting size), so a large chromatophore that swells by thousands of pixels comes before a speck whose
+    few pixels of flicker pass the relative threshold.  Ties (and results without resting sizes) by number of events."""
+    if not len(ev):
+        return []
+    ev = ev.copy()
+    rest = _read_csv(Path(res) / 'chromatophores.csv')
+    if len(rest) and {'chromatophore', 'resting_px'} <= set(rest.columns):
+        ev['growth_px'] = ev['amplitude'] * ev['chromatophore'].map(rest.set_index('chromatophore')['resting_px'])
+    else:
+        ev['growth_px'] = ev['amplitude']
+    g = ev.groupby('chromatophore').agg(growth=('growth_px', 'max'), n=('chromatophore', 'size'))
+    g = g.sort_values(['growth', 'n'], ascending=False, na_position='last')
+    return [int(c) for c in g.index]
+
+
+def _movement_order(res, ev):
+    """Every analysed chromatophore whose size changes, largest movement first: the 95th percentile of its area minus
+    its resting size (10th percentile), from areas_wide.csv of the results (the largest over chunks).  So a
+    chromatophore that swells a lot is offered whether or not an event was detected for it, and specks that barely
+    change come last.  Falls back to the chromatophores with events when the table is missing."""
+    wide = _read_csv(Path(res) / 'areas_wide.csv')
+    if not len(wide) or len(wide.columns) < 2:
+        return _activity_order(res, ev)
+    wide = wide.drop(columns=[wide.columns[0]])                 # t_s
+    move = (wide.quantile(0.95) - wide.quantile(0.10)).dropna()
+    ids = [int(str(k).rsplit('_', 1)[-1].lstrip('C')) for k in move.index]   # C101, or C0_101 with several chunks
+    move = pd.Series(move.to_numpy(), index=ids).groupby(level=0).max()
+    move = move[move > 0].sort_values(ascending=False, kind='stable')
+    return [int(c) for c in move.index]
+
+
 def _read_csv(path):
     path = Path(path)
     if not path.exists() or path.stat().st_size < 2:
@@ -325,6 +358,39 @@ def activation_panel(dataset_sel):
                                     step=0.05, width=170)
     nb_in = pn.widgets.FloatInput(name='Neighbour edge limit (x median)', value=float(defaults['neighbour_factor']),
                                   step=0.1, width=200)
+    noise_in = pn.widgets.Select(name='Noise measured from', options={'Rest': 'rest', 'All': 'all'},
+                                 value=defaults.get('noise_from', 'rest') if defaults.get('noise_from') in ('rest', 'all')
+                                 else 'rest', width=170)
+    settings_help = pn.pane.Markdown(
+        '**What the settings do**\n\n'
+        '- **Settings file**: a saved set of the values below. *(project defaults)* uses `config.defaults.toml`; an '
+        '`examples/<name>/example.toml` file sets the scale and region for that example video, and a dataset with its '
+        'own examples folder gets it by itself.\n'
+        '- **Pixels per mm**: the scale of the CHROMAS master frame. With it, distances and wave speeds are also given in '
+        'mm and mm/s; 0 = unknown, so they stay in pixels. Nothing else changes.\n'
+        '- **Region (x y width height)**: only the chromatophores whose centres lie in this box, in master-frame pixels '
+        '(the map\'s coordinates), are analysed; the rest are left out. Empty = the whole frame.\n'
+        '- **Onset (noise sigmas)**: an event starts when a chromatophore expands faster than this many times its own '
+        'noise (see **Noise measured from**). Higher = fewer, stronger events; lower = more events, more of them noise. '
+        'Default 4.\n'
+        '- **Noise measured from**: where each chromatophore\'s noise is measured for **Onset**. **Rest** (default): '
+        'in its quietest frames, so a chromatophore that is busy most of the clip still shows its events. **All**: over '
+        'the whole recording; in a short or busy clip its own expansions count as noise, so very active chromatophores '
+        'can show no events. Use **All** only for long, mostly quiet recordings.\n'
+        '- **Min. growth (share of rest)**: an event counts only if the chromatophore grows by at least this share of its '
+        'own resting size (0.10 = 10 %). It is relative, so a tiny chromatophore passes it with a few pixels of '
+        'flicker: such events are real by this rule but invisible in the replay. '
+        'Raise it (for example 0.5) to keep only clear expansions.\n'
+        '- **Max. lag between neighbours (s)**: two neighbouring chromatophores are linked into a pathway, and so into a '
+        'wave, when the second one\'s onset follows the first within this time. Longer = bigger, looser waves.\n'
+        '- **Coincidence window (s)**: two events count as happening together when their onsets are this close. Used by '
+        'the "are neighbours activated together?" test and to compare the two event detectors.\n'
+        '- **Neighbour edge limit (x median)**: neighbours are the chromatophores joined in a triangulation of their '
+        'centres; links longer than this many times the typical (median) link are dropped, so chromatophores across a '
+        'gap are not neighbours. Higher = more, longer-range neighbours.\n\n'
+        'A change takes effect when you press **Analyse dataset**; **Reset settings to defaults** puts back the values of '
+        'the chosen settings file. **Check the method** runs the analysis on synthetic data with a known answer '
+        '(planted waves, a control with no coupling, a whole-patch flash) and says whether it found it.', sizing_mode='stretch_width')
     analyse_btn = pn.widgets.Button(name='Analyse dataset', button_type='primary')
     check_btn = pn.widgets.Button(name='Check the method (synthetic data)')
     reset_settings_btn = pn.widgets.Button(name='Reset settings to defaults')
@@ -332,9 +398,9 @@ def activation_panel(dataset_sel):
     log_view = pn.widgets.TextAreaInput(value='', disabled=True, height=150, sizing_mode='stretch_width',
                                         name='Output (newest first)')
     results = pn.Column(sizing_mode='stretch_width')
-    cells_sel = pn.widgets.MultiSelect(name='Chromatophores (most events first)', options=[], size=10, width=200)
+    cells_sel = pn.widgets.MultiSelect(name='Chromatophores (largest movement first)', options=[], size=10, width=200)
     # the same choice, offered inside the Replay panel too (a widget can sit in only one place), kept in step both ways
-    replay_sel = pn.widgets.MultiSelect(name='Chromatophores to ring (most events first)', options=[], size=8, width=230)
+    replay_sel = pn.widgets.MultiSelect(name='Chromatophores to ring (largest movement first)', options=[], size=8, width=230)
     cells_sel.link(replay_sel, options='options')
     cells_sel.link(replay_sel, value='value', bidirectional=True)
     reset_sel_btn = pn.widgets.Button(name='Reset to the most active', width=200)
@@ -348,7 +414,7 @@ def activation_panel(dataset_sel):
         return ca.load_settings(configs[config_sel.value], px_per_mm=float(px_in.value), roi=roi,
                                 onset_z=float(z_in.value), min_amplitude=float(amp_in.value),
                                 max_lag_s=float(lag_in.value), coincidence_s=float(coin_in.value),
-                                neighbour_factor=float(nb_in.value))
+                                neighbour_factor=float(nb_in.value), noise_from=noise_in.value)
 
     def _on_config(*_):
         cfg = ca.load_settings(configs[config_sel.value])
@@ -357,6 +423,7 @@ def activation_panel(dataset_sel):
         for w, k in ((z_in, 'onset_z'), (amp_in, 'min_amplitude'), (lag_in, 'max_lag_s'),
                      (coin_in, 'coincidence_s'), (nb_in, 'neighbour_factor')):
             w.value = float(cfg[k])
+        noise_in.value = cfg.get('noise_from', 'rest') if cfg.get('noise_from') in ('rest', 'all') else 'rest'
 
 
     def _render_now(*_):
@@ -384,7 +451,7 @@ def activation_panel(dataset_sel):
                                                 '"Analyse dataset".*')]
             return
         ev = _read_csv(res / 'events.csv')
-        top = list(ev['chromatophore'].value_counts().index.astype(int)) if len(ev) else []
+        top = _movement_order(res, ev)
         cells_sel.options = top
         cells_sel.value = top[:4]
         def lazy(title, make, label):
@@ -407,7 +474,9 @@ def activation_panel(dataset_sel):
                  lazy('Replay', lambda: pn.Column(
                      pn.Row(replay_sel, pn.pane.Markdown(
                          'Choose the chromatophores to ring and number here: with **Numbers: Selected only** the '
-                         'replay rings these (the four most active to begin with). It is the same list as in the '
+                         'replay rings these (the four that move most to begin with). The list holds every chromatophore '
+                         'that changes size, with or without a detected event, largest movement first (how far it '
+                         'swells above its resting size). It is the same list as in the '
                          'Traces panel, so a choice made in either one shows in both.', width=520)),
                      rv.replay_pane(ds, cells_sel), sizing_mode='stretch_width'), 'replay')]
         if (res / 'pathways.png').exists():
@@ -489,6 +558,7 @@ def activation_panel(dataset_sel):
         pn.pane.Markdown('### Analyse a CHROMAS dataset'), intro,
         pn.Row(config_sel),
         pn.Row(px_in, roi_in),
-        pn.Row(z_in, amp_in, lag_in, coin_in, nb_in),
+        pn.Row(z_in, noise_in, amp_in, lag_in, coin_in, nb_in),
+        settings_help,
         pn.Row(analyse_btn, check_btn, reset_settings_btn), status, log_view, sizing_mode='stretch_width')
     return pn.Column(form, pn.layout.Divider(), results, sizing_mode='stretch_width')

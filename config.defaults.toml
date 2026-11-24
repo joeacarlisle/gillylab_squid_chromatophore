@@ -70,8 +70,8 @@ min_baseline_px = 20.0     # chromatophores smaller than this at rest are left o
 max_missing_frac = 0.1     # left out if the area is missing (0) in more than this share of frames
 smooth_s = 0.2             # smoothing window (Savitzky-Golay) for the expansion rate
 onset_z = 4.0              # an event starts when the expansion rate exceeds this many noise sigmas ...
-noise_from = "all"        # noise of the rate from the whole recording; "rest" = quietest 30 % of frames (better for
-                           # recordings in which chromatophores are active most of the time)
+noise_from = "rest"       # noise of the rate from the quietest 30 % of frames ("rest", the default: a chromatophore that
+                           # is active most of the time still gets a low threshold); "all" = the whole recording
 min_amplitude = 0.10       # ... and counts if the chromatophore grows by at least this share of its resting size
 min_gap_s = 0.2            # events of one chromatophore closer than this are merged
 neighbour_factor = 1.6     # Delaunay neighbours; edges longer than this times the median edge are dropped
