@@ -13,7 +13,7 @@ A separate **Signal** add-on measures the brightness of boxes on the whole anima
 | For | close-up skin video, one chromatophore at a time | distant footage of a whole animal |
 | Measures | area of every chromatophore over time, activation, waves, motor units, groups | brightness of boxes on the animal: flashing, flickering, phase |
 | Needs | the separate CHROMAS install (`gillylab_chromas`) | nothing besides this project |
-| Dashboard tabs | Video, Datasets, Chromatophores, Activation, Advanced analytics | Signal |
+| Dashboard tabs | Video, Datasets, Chromatophores, Activation, Advanced analytics, Training | Signal |
 | Database | `processed/gl_chromas.duckdb` | `processed/gl_chromatophore.duckdb` |
 | Demo | none | `chromatophore_signal_demo` script (see *Signal demo*) |
 
@@ -130,7 +130,7 @@ The tabs come in two groups, each following its own choice in the sidebar: the C
 ### What it does
 
 * **Runs CHROMAS from the dashboard:** the dashboard starts CHROMAS in its own environment (chunking, segmentation, registration, stitching, area), then loads the result and chooses it in the sidebar.
-* **Three segmentation methods:** a **lookup table** (colours you choose in the built-in colour picker; no weights needed), a **random forest** trained on your own painted frames (a form in the Datasets tab takes you through it step by step), and the CHROMAS **neural network** (needs the trained weights, which are not shipped).
+* **Three segmentation methods:** a **lookup table** (colours you choose in the built-in colour picker; no weights needed), a **random forest** trained on your own painted frames, and the CHROMAS **neural network** (needs the trained weights, which are not shipped), which can be fine-tuned on the same frames. The **Training** tab takes you through both step by step.
 * **Stores the results in DuckDB:** the area of every chromatophore in every frame, the focus check and a record of each run go to `processed/gl_chromas.duckdb` (tables `chromas_runs`, `chromas_areas` and `chromas_focus`). Everything else the tabs use (positions, quality checks, wedges, motor units, activation results) stays in files in `processed/chromas_export/<dataset>/` and `processed/chromas_activation/<dataset>/`. DuckDB is pinned to 2.0, because a file written by 2.0 cannot be opened by 1.x.
 
 ### The CHROMAS tabs
@@ -143,6 +143,7 @@ The sidebar shows the chosen **CHROMAS dataset** and how far it is (in the datab
 | **Datasets** | Run CHROMAS on a video, import a `.zarr` result or results exported earlier, and run the extra steps a dataset needs: quality checks, the slice step, CHROMAS grouping, the motor-unit analysis, quality-control videos, and **Measure areas again**. A table lists every dataset with its next step and how good the run is: chromatophores measured out of numbered (in total and per chunk), median area per chunk, whether the chunks agree, frames in focus, the lookup table used, and which later steps are done (columns show yes or no; stale means a step was run before the areas were measured again). |
 | **Chromatophores** | A map of the chromatophores coloured by a measure (click one, or drag a box, to plot it); the area of each over time and a heat map; histograms of resting size, largest expansion and time expanded; groups that move together; flower plots (after the slice step); and quality checks: focus over time, pigment coverage, registration between chunks, sample frames next to their segmentation, and overlay videos. |
 | **Activation** | Activation events per chromatophore, whether neighbours are activated together, wave speed and direction, and a replay next to the video (see below). |
+| **Training** | Train a random forest or fine-tune the neural network on frames you paint by hand, step by step as in [docs/TRAINING_THE_NETWORK.md](docs/TRAINING_THE_NETWORK.md): training and test sets, frames, drafts from a lookup table, masks, training, scores on the test frames against lookup, and putting the model in the Run CHROMAS form. Painting itself is done in GIMP or Fiji. |
 | **Advanced analytics** | Reports modelled on the figures of the CHROMAS papers: the 36 wedge traces of a chromatophore, motor units (the papers' method), wedge correlation clusters (a shortcut of this project, not motor units), cluster statistics and network, wedge orientation, CHROMAS's own groups, expansion against relaxation speed, and the overlap of two chunks. The wedge reports need the slice step. |
 
 ### Choosing the colours (lookup method)
@@ -159,7 +160,7 @@ For a step-by-step guide to getting the best results with this method, with how 
 ### CHROMAS demos
 
 * **Check the activation method on synthetic data** - the **Check the method** button in the Activation tab builds two synthetic patches with known waves and checks that the analysis finds them.
-* **Check or fine-tune the neural network on your own squid video** - [docs/TRAINING_THE_NETWORK.md](docs/TRAINING_THE_NETWORK.md) (not a demo; do it only if the lookup method falls short).
+* **Check or fine-tune the neural network on your own squid video** - [docs/TRAINING_THE_NETWORK.md](docs/TRAINING_THE_NETWORK.md) (not a demo; do it only if the lookup method falls short). The **Training** tab runs the same steps with buttons.
 
 ### How it fits together
 
@@ -255,7 +256,8 @@ The window length and the thresholds are in `config.defaults.toml`; a video's ow
 |   chromas_bridge.py                   runs CHROMAS in its own environment and loads its results into DuckDB
 |   chromas_export.py                   reads CHROMAS Zarr output (runs in the CHROMAS environment)
 |   import_view.py                      the Datasets tab (run CHROMAS, import its results)
-|   rf_training_view.py                 the training form of the Datasets tab (train a random forest step by step)
+|   training_view.py                    the Training tab (random forest and neural network, step by step)
+|   rf_training_view.py                 helpers of the Training tab (training sets, videos, lookup tables, models)
 |   video_view.py, video_prep.py        the Video tab and the ffmpeg / ffprobe steps behind it
 |   chromas_view.py                     the Chromatophores tab and the Run CHROMAS form
 |   chromatophore_views.py              the Chromatophores tab's map, distributions, groups, flowers and quality checks

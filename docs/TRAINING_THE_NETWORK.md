@@ -25,6 +25,105 @@ set in `Chromas2025.zip` is only 8 image/mask pairs, so a few dozen squid frames
 
 ---
 
+## Two ways to do it: the Training tab or the command line
+
+Everything in this guide can be done with buttons in the dashboard's **6 Training** tab, or with the commands in
+steps 1-5 below. They do the same things and write the same files, so you can mix them: export frames in the tab and
+train on a GPU machine from the command line, for example. The command-line steps stay the reference, and they are what
+you use on a computer without the dashboard.
+
+### The Training tab
+
+Start the dashboard (`scripts\windows\chromatophore_dashboard.bat`) and open **6 Training**. Work down the page; each
+button runs one step, its output appears in the box at the bottom, and only one step runs at a time (**Stop** ends it).
+
+| Tab step | What it does | Same as |
+|---|---|---|
+| **0. Before you start** | Says when training is worth it, and checks this computer: CHROMAS installed, the training patch applied, the supplied network found, an NVIDIA GPU or CPU only. **Check again** repeats it. | "What you need" |
+| **1. Training and test sets** | Chooses the training set and the test set: folders under `training\`, written *group/name* (default `squid/train` and `squid/test`). **Create** makes a new one. It counts the frames, paint layers, drafts edited since they were made, and masks of both, and warns when the two sets are the same folder. The switch **Training set / Test set** below it says which set steps 2 to 5 work on. | step 1 |
+| **2. Export frames** | Frames from a video, *spread over the video* (how many) or *at these seconds*, into `images\` of the set chosen by the switch. | `chromas_training.py frames` |
+| **3. Drafts** | A lookup table's guess, as a red paint layer in `painted\`, for every frame that has none yet. It records when each draft was made, so step 1 can count the ones you have edited. | `chromas_training.py draft` |
+| **4. Paint** | **Open the painted folder** (painting itself is done in GIMP or Fiji; *How to paint in GIMP* repeats step 2 below). **Painting rules** is a note saved with the set as `PAINTING_RULES.md`. | step 2 |
+| **5. Masks and check** | Converts the paint layers to masks and checks the pairs; it ends with *Ready for chromas train*. Do it for both sets. | `chromas_training.py masks` and `check` |
+| **6a. Random forest** | **Make crops**, then **Train random forest** (no GPU needed). | `chromas_training.py crops`, `chromas train -m rf` |
+| **6b. Neural network** | Fine-tunes the network: **Start from** (the supplied network, a network you trained, or ImageNet only), **Passes** (`-e`), **Validate every** (`-v`), **Run name**. Below it, the same command to copy to a GPU machine, and **Results of a run** shows `metrics_plot.png` and `predictions.png`. | step 4 |
+| **7. Score on the test set** | Scores any lookup table, random forests and networks on the test set and shows the mean Dice, IoU, precision, recall, chromatophores found and extra regions per method. The scores are also saved in the test set's folder as `scores_<date>_<time>.csv`. | step 5 |
+| **8. Use the model** | Chooses *neuralnet* (a `.pth`) or *randomforest* (a `.pkl`) in the Run CHROMAS form of the **Datasets** tab and puts the model in its *Model file* box. | "Using the trained network" |
+
+What the tab does for you, compared with the command line:
+
+* step 6b always passes `-c 2` (two classes), creates the output folder `training_runs\<run name>\` before the run, and
+  refuses a run name that is already used, so a run is never overwritten;
+* it starts `chromas train` with Matplotlib set to draw off screen (`MPLBACKEND=Agg`), so the two preview windows should
+  not open and wait (not yet confirmed on a real run on this laptop; see "Known problems");
+* models go where `chromas train` puts them, `gillylab_chromas\training_runs\<name>\`; CHROMAS itself is not changed.
+
+Keep the page open while a step runs. A network run that is stopped saves no network (CHROMAS writes it at the end).
+
+### Example 1: fine-tune the network for the FASTEC recordings
+
+1. **0. Before you start**: check that the training patch and the supplied network show a tick. "No NVIDIA GPU" means
+   step 4 will run on the CPU: fine for a first try with few passes, slow for real work (see example 4).
+2. **1. Sets**: leave `squid/train` and `squid/test`, or type `fastec/train` in *New set*, press **Create**, then
+   `fastec/test` with the switch on *Test set*, and **Create** again.
+3. **2. Export frames**, switch on *Training set*: video `data/FASTEC-IL5-714_2024-07-10_000029_h264.mp4`, *Spread over
+   the video*, 8 frames, **Export frames**. Do the same for two or three other videos.
+4. Switch to *Test set* and export 2 frames from a video **not** used for training, for example at chosen seconds:
+   *At these seconds* `1.5 4`.
+5. **3. Drafts**, for each set: lookup table `FASTEC-IL5-714_2024-07-10_000029_h264_colorchromas.lookup_table.npz` (one the
+   colour picker saved), **Make drafts**.
+6. **4. Paint**: write the rules, for example *"Every chromatophore, small ones too, as large as its pigment in this
+   frame. Partly hidden: the visible part. Out of focus: leave out. The electrode, debris, bubbles: never."*, **Save the
+   rules**. **Open the painted folder** and correct every draft in GIMP. Step 1 shows, for example, *8 paint layers (8 of
+   8 drafts edited since they were made)* when all are done.
+7. **5. Masks and check**, for the training set, then for the test set. Both should end with *Ready for chromas train*.
+8. **6b**: *Start from* `supplied: sepia_2classes_fcn_resnet50.pth`, *Passes* 50, *Validate every* 5, *Run name*
+   `fastec_v1`, **Train the network**. When it finishes, choose `fastec_v1` in *Results of a run* and look at
+   `metrics_plot.png`: validation should improve and then level off.
+9. **7. Score**: lookup table `FASTEC-..._colorchromas.lookup_table.npz`, networks `supplied: ...` and
+   `trained: fastec_v1/fcn_resnet50_50_best_model.pth`, **Score on the test set**.
+10. If the trained network wins (example 3), **8. Use the model**: choose `network: fastec_v1/...`, **Use it in Run
+    CHROMAS**, then run CHROMAS on a video in the Datasets tab and check its overlay video.
+
+### Example 2: a random forest instead (no GPU)
+
+Steps 1 to 5 as in example 1, then **6a**: *Crop size* 512, *Crops per frame* 1, **Make crops** (into
+`training\fastec\train_crops\`); *Train on* Crops, *Model name* `rf_fastec_v1`, **Train random forest** (more than ten
+minutes on a small machine). Score it in step 7 under *Random forests*, next to lookup and the networks, and use it
+with step 8 (it sets *randomforest*).
+
+### Example 3: reading the scores
+
+Step 7 shows one row per method, for example (made-up numbers, to show how to read it):
+
+| method | Dice | IoU | precision | recall | found | extra |
+|---|---|---|---|---|---|---|
+| lookup (FASTEC-..._colorchromas.lookup_table.npz) | 0.71 | 0.55 | 0.63 | 0.82 | 118 of 124 | 41 |
+| network (sepia_2classes_fcn_resnet50.pth) | 0.64 | 0.47 | 0.70 | 0.59 | 97 of 124 | 12 |
+| network (fcn_resnet50_50_best_model.pth) | 0.83 | 0.71 | 0.85 | 0.81 | 120 of 124 | 9 |
+
+Here lookup finds most chromatophores but marks a lot that is not one (low precision, 41 extra regions: probably the
+electrode and debris); the supplied cuttlefish network misses many (low recall); the fine-tuned network has a clearly
+higher Dice, far fewer extra regions and finds at least as many, so by the rule in step 5 it is worth using. If the
+trained row were no better than lookup, keep lookup.
+
+### Example 4: train on a GPU machine, use the result here
+
+1. Do steps 1 to 5 in the tab, then copy the training set folder (for example `training\fastec\train\`) to the GPU
+   machine, which needs the same CHROMAS install with the training patch and `model_weights\`.
+2. Under **6b**, the line *On a GPU machine instead* shows the command for the settings you chose. On the GPU machine,
+   change its paths to that machine's folders, create the output folder, and run it (the same command as step 4 below).
+3. Copy the whole run folder back into `gillylab_chromas\training_runs\` on this laptop (it must hold
+   `fcn_resnet50_<passes>_best_model.pth`). Press **Refresh lists**: it appears in *Results of a run*, *Start from*,
+   step 7 and step 8 like a run made here.
+
+---
+
+## The command line
+
+Steps 1 to 5 below are the same work done from a terminal.
+
+
 ## Step 1. Choose and export frames
 
 Choose frames that cover what the network will meet:
@@ -176,8 +275,8 @@ no GPU. Then check the effect on the actual question: run CHROMAS on a test vide
 `chromas_activation.py` results (events, coupling, waves). Conclusions that change with the segmentation are not yet
 solid.
 
-**Using the trained network.** In the dashboard's CHROMAS tab choose *neuralnet* and put the new `.pth` file in the
-*Weights file* box, or on the command line:
+**Using the trained network.** In the dashboard's **Datasets** tab (Run CHROMAS form) choose *neuralnet* and put the new `.pth` file in the
+*Model file* box (step 8 of the **Training** tab does both for you), or on the command line:
 
 ```
 python chromas_bridge.py run <video> --method neuralnet --weights <chromas folder>\training_runs\squid_v1\fcn_resnet50_50_best_model.pth
@@ -200,9 +299,9 @@ on exactly the same frames, and the network can be retrained when new kinds of v
 | The learning-rate scheduler is created with `verbose=True`, which the installed PyTorch (2.15) no longer accepts | `chromas train` stops at once with a TypeError | fixed by `extras\apply_patches.py` (training patch) |
 | Starting weights saved on a GPU are loaded without `map_location` | fails on a computer without a GPU | fixed by the same patch |
 | Masks must hold class numbers (0, 1) in the first channel; the colour table in its code is never used | colour-painted masks give nonsense classes | `chromas_training.py masks` (or `chromas unify-training-data`) |
-| `-c` defaults to 4 classes | the supplied 2-class model does not load | always pass `-c 2` |
-| Two preview windows open at the start and wait | the run cannot be left unattended until they are closed | close them; on a server without a screen this needs a code change |
-| The output folder given with `-o` must exist | stops with an error | create it first |
+| `-c` defaults to 4 classes | the supplied 2-class model does not load | always pass `-c 2` (the Training tab does) |
+| Two preview windows open at the start and wait | the run cannot be left unattended until they are closed | close them; on a server without a screen, set `MPLBACKEND=Agg` before `chromas train` (the Training tab does this; not yet confirmed on a real run) |
+| The output folder given with `-o` must exist | stops with an error | create it first (the Training tab does) |
 | Validation windows come from the training frames | its validation scores are optimistic | score on separate test frames (step 5) |
 
 The training patch was applied to the CHROMAS install on this computer on 13 November 2026. A full training run has
@@ -214,10 +313,13 @@ not been made yet on this laptop.
 
 | File | Environment | Does |
 |---|---|---|
+| `training_view.py` (the **6 Training** tab) | this project | all the steps of this guide with buttons; it runs the tools below |
 | `chromas_training.py frames / draft / masks / check` | this project | export frames, draft paint layers from a lookup table, convert paint layers to masks, check the pairs |
 | `chromas_score_segmentation.py` | CHROMAS | score lookup tables and networks against hand masks |
 | `chromas train` | CHROMAS | fine-tune or train the network |
 | `gillylab_chromas\extras\apply_patches.py` | CHROMAS | the patches CHROMAS needs on this laptop, including the training patch |
 
 `chromas_training.py` was tested on a squid skin video (frames, drafts, masks, check); its masks have the same format
-as the masks in CHROMAS's own training set. `chromas_score_segmentation.py` was tested with the lookup method.
+as the masks in CHROMAS's own training set. `chromas_score_segmentation.py` was tested with the lookup method. The
+Training tab was tested with its steps 1 to 5 on a real video and with steps 6 to 8 against a stand-in for CHROMAS; a
+real network training run from the tab has not been made yet.

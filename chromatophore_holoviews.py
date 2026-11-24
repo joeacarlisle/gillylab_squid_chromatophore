@@ -36,6 +36,7 @@ from activation_view import activation_panel  # noqa: E402  (Activation tab: eve
 from supplemental_view import supplemental_panel  # noqa: E402  (Supplemental tab: reports modelled on the CHROMAS paper figures)
 from import_view import datasets_panel  # noqa: E402  (Datasets tab: run CHROMAS, import its results)
 from video_view import video_panel  # noqa: E402  (Video tab: ffmpeg / ffprobe steps to prepare a video)
+from training_view import training_panel  # noqa: E402  (Training tab: train a random forest or the network on painted frames)
 DB_PATH = BASE_DIR / 'processed' / 'gl_chromatophore.duckdb'
 VIDEO_DIR = BASE_DIR / 'videos'
 STATE_COLORS = {'quiet': '#9aa5b1', 'flickering': '#f0a500', 'flashing': '#d62728', 'untracked': '#e6e6e6'}
@@ -371,7 +372,7 @@ signal_page = pn.Column(
 dataset_sel, dataset_info, _ = dataset_state.make_selector()
 TAB_VIEWS = [('1 Video', video_panel()), ('2 Datasets', datasets_panel(dataset_sel)), ('3 Chromatophores', chromas_panel(dataset_sel)),
              ('4 Activation', activation_panel(dataset_sel)), ('5 Advanced analytics', supplemental_panel(dataset_sel)),
-             ('Signal', signal_page)]
+             ('6 Training', training_panel()), ('Signal', signal_page)]
 
 BANNER_SYNTHETIC = ('**Prototype.** This video is synthetic (two drawn shapes with known flashing and flickering), so the '
                     'results can be checked against the truth. Real footage will need ROI boxes and tuned thresholds.')
@@ -392,8 +393,8 @@ top = pn.Column(pn.Row(pn.Column(video_pane, time_slider, width=660),
                 pn.pane.Markdown('### Summary'), summary, sizing_mode='stretch_width')
 
 # The video, the ROI boxes, the summary and the sidebar controls belong to the Signal tab;
-# they are hidden while a CHROMAS tab (Video, Datasets, Chromatophores, Activation, Advanced analytics) is open, which show the dataset choice.
-CHROMAS_TABS = (0, 1, 2, 3, 4)
+# they are hidden while a CHROMAS tab (Video, Datasets, Chromatophores, Activation, Advanced analytics, Training) is open, which show the dataset choice.
+CHROMAS_TABS = (0, 1, 2, 3, 4, 5)
 # The Signal tab: video, ROI boxes and summary on top, then the sections.  The tab bar is at the top of the page.
 # One flat Column: with the video and summary in a nested Column, Bokeh 3.9 drew the responsive plots below them
 # with no width (empty plots).
@@ -509,7 +510,7 @@ chromas_side = pn.Column(dataset_sel, dataset_info,
                                           'when it is open.*', width=270))
 
 
-NO_SIDEBAR_TABS = (0, 1)    # Video and Datasets use neither the dataset dropdown nor regions: Video prepares a file, Datasets has its own table
+NO_SIDEBAR_TABS = (0, 1, 5)    # Video, Datasets and Training use neither the dataset dropdown nor regions: Video prepares a file, Datasets has its own table, Training its own sets
 
 
 def _on_tab(*_):

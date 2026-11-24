@@ -13,6 +13,7 @@ import contextlib
 import re
 import threading
 import time
+import weakref
 from pathlib import Path
 
 import duckdb
@@ -23,7 +24,6 @@ import panel as pn
 
 import chromas_bridge as cb
 import lookup_picker as lp
-import rf_training_view as rtv
 import chromatophore_views as cv
 from replay_view import cell_colour
 import dataset_state
@@ -99,6 +99,18 @@ def _cell_stats(dataset_id):
                                                                    (dataset_id,))).copy()
 
 
+# The Run CHROMAS form of each browser session, so the Training tab can put a trained model in it (step 8).  Keyed by
+# the session's Bokeh document; None (no server, e.g. a test) has its own slot.
+_RUN_FORMS = weakref.WeakKeyDictionary()
+_RUN_FORM_NO_DOC = {}
+
+
+def run_form_widgets():
+    """(method_in, weights_in) of the Run CHROMAS form of this session, or None if it has not been built yet."""
+    doc = pn.state.curdoc
+    return _RUN_FORM_NO_DOC.get('form') if doc is None else _RUN_FORMS.get(doc)
+
+
 def run_form():
     """The "Run CHROMAS on a video" form (part of the Datasets tab)."""
     st = cb.settings()
@@ -116,7 +128,16 @@ def run_form():
     focus_in = pn.widgets.FloatInput(name='Focus threshold', value=st['focus_threshold'], step=0.005, width=140)
     minchunk_in = pn.widgets.IntInput(name='Min chunk (frames)', value=st['min_chunk_frames'], step=10, start=10, width=140)
     gpu_in = pn.widgets.Checkbox(name='Use GPU', value=False)
+    _torch = cb.torch_build(st)
+    if _torch is not None and not _torch['cuda']:
+        # --gpu switches CHROMAS to a GPU-only path with no CPU fallback: with a CPU-only PyTorch the run would fail
+        gpu_in.disabled = True
+        gpu_in.name = f'Use GPU (off: PyTorch {_torch["version"]} in CHROMAS is CPU-only)'
     weights_in = pn.widgets.TextInput(name='Model file (neuralnet: .pth, empty = models/ folder; randomforest: your trained .pkl, required)', value='', width=420)
+    if pn.state.curdoc is None:
+        _RUN_FORM_NO_DOC['form'] = (method_in, weights_in)
+    else:
+        _RUN_FORMS[pn.state.curdoc] = (method_in, weights_in)
     run_btn = pn.widgets.Button(name='Run CHROMAS', button_type='primary', disabled=bool(problems))
     status = pn.pane.Alert('', alert_type='info', visible=False, sizing_mode='stretch_width')
     # a busy bar, a clock and a Stop button next to Run CHROMAS, like the ones under the extra CHROMAS results
@@ -209,12 +230,14 @@ def run_form():
     window_card = pn.Card(window_note, title='Or let CHROMAS open its own clicking window', collapsed=True,
                           sizing_mode='stretch_width')
 
-    train_card = pn.Card(rtv.TrainingPanel(weights_in, method_in).panel, title='Train a random forest',
-                         collapsed=False, sizing_mode='stretch_width')
+    train_card = pn.pane.Markdown(
+        'To train a **random forest** or fine-tune the **neural network** on your own painted frames, use the '
+        '**6 Training** tab: its last step puts the trained model in the *Model file* box here and chooses the method.',
+        sizing_mode='stretch_width')
 
     def _cards_visibility(*_):
         picker_card.visible = window_card.visible = method_in.value == 'lookup'
-        train_card.visible = method_in.value == 'randomforest'
+        train_card.visible = method_in.value in ('randomforest', 'neuralnet')
     method_in.param.watch(_cards_visibility, 'value')
     _cards_visibility()
 
@@ -261,12 +284,12 @@ def run_form():
                      pn.pane.Markdown(
                          'A file name is looked for in the CHROMAS data folder, `videos/` and `examples/<name>/`; '
                          '`.mp4` may be left off. **Lookup** labels pixels by colour, so it needs colours from this '
-                         'video: the first time, a window opens where you click the **background first, then at least '
-                         'one chromatophore**, then press Q. The table is kept and reused for the same video without '
-                         'clicking; to choose new colours, use the colour picker below. '
-                         '**Neuralnet** needs no clicks. **Randomforest** needs the model file you trained '
-                         '(`chromas train -m rf`; a form below, shown when Randomforest is chosen, does it step by step) '
-                         'in the box below.', sizing_mode='stretch_width'),
+                         'video: choose them with the colour picker below (with a preview), or **Run CHROMAS** opens '
+                         'CHROMAS\'s own window, where you click the **background first, then at least one '
+                         'chromatophore**, then press Q (every run, as `chromas run` does). '
+                         '**Neuralnet** needs no clicks: it uses the supplied network, or one you fine-tuned, given in the '
+                         'box below. **Randomforest** needs the model file you trained, in the box below. Both are trained '
+                         'in the **6 Training** tab.', sizing_mode='stretch_width'),
                      pn.Row(weights_in),
                      picker_card, window_card, train_card,
                      pn.Row(run_btn, job_text, stop_btn, sizing_mode='stretch_width', align='center'), job_bar,

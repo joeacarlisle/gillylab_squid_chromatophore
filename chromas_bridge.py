@@ -646,20 +646,134 @@ def train_forest(input_dir, name, log=print):
     return out / RF_MODEL_NAME
 
 
-def score_models(folder, lookup=None, forests=(), log=print):
-    """Score a lookup table and/or random forest models on a folder of painted frames (images/ and masks/)."""
+def score_models(folder, lookup=None, forests=(), log=print, networks=(), out=None):
+    """Score a lookup table, random forest models and/or networks (.pth, 2 classes) on a folder of painted frames
+    (images/ and masks/).  out: also write the scores to this CSV file."""
     st = settings()
     bad = check_install(st)
     if bad:
         raise RuntimeError('; '.join(bad))
-    if not lookup and not forests:
+    if not lookup and not forests and not networks:
         raise RuntimeError('Choose a model or a lookup table to score.')
     cmd = [st['python_exe'], BASE_DIR / 'chromas_score_segmentation.py', folder]
     if lookup:
         cmd += ['--lookup', lookup]
     if forests:
         cmd += ['--forest', *forests]
+    if networks:
+        cmd += ['--weights', *networks, '--classes', '2']
+    if out:
+        cmd += ['--out', out]
     _stream(cmd, st['home'], log)
+
+
+# ── Neural network training (docs/TRAINING_THE_NETWORK.md, step 4) ───────────────────────────────────────────────
+NETWORK_ARCH = 'fcn_resnet50'       # the architecture of the supplied model, so it can be fine-tuned
+
+
+def network_models(st=None):
+    """Networks to start from or to score: {label: path}: the supplied model, then those trained in training_runs/."""
+    st = st or settings()
+    out = {}
+    if _is_real_weights(st['weights']):
+        out[f'supplied: {st["weights"].name}'] = str(st['weights'])
+    runs = training_runs_dir(st)
+    for p in sorted(runs.glob(f'*/{NETWORK_ARCH}_*_best_model.pth')) if runs.is_dir() else []:
+        out[f'trained: {p.parent.name}/{p.name}'] = str(p)
+    return out
+
+
+def torch_build(st=None):
+    """The PyTorch installed in the CHROMAS environment, read from its torch/version.py without starting Python:
+    {'version': '2.15.0+cpu', 'cuda': None} (None = the CPU-only build, which can never use a GPU), or None when no
+    PyTorch is found there."""
+    st = st or settings()
+    venv = st['home'] / '.venv'
+    for f in [venv / 'Lib' / 'site-packages' / 'torch' / 'version.py',
+              *sorted(venv.glob('lib/python*/site-packages/torch/version.py'))]:
+        try:
+            text = f.read_text(encoding='utf-8')
+        except OSError:
+            continue
+        ver = re.search(r"^__version__\s*=\s*'([^']*)'", text, re.M)
+        cuda = re.search(r"^cuda(?::[^=]*)?=\s*(None|'[^']*')", text, re.M)
+        return {'version': ver.group(1) if ver else '',
+                'cuda': None if not cuda or cuda.group(1) == 'None' else cuda.group(1).strip("'")}
+    return None
+
+
+def training_readiness(st=None):
+    """What training the network needs on this computer, asked of the CHROMAS Python: a dict with torch (version),
+    gpu (name or ''), patched (the training patch of extras/apply_patches.py is in), weights (the supplied model
+    exists) and problems (a list of plain-language problems; empty = ready).  Takes a few seconds (imports torch)."""
+    st = st or settings()
+    problems = list(check_install(st))
+    info = {'torch': '', 'cuda': None, 'gpu': '', 'patched': False, 'weights': _is_real_weights(st['weights']),
+            'problems': problems}
+    if not info['weights']:
+        problems.append(f'the supplied network was not found ({st["weights"]}): copy model_weights/'
+                        'sepia_2classes_fcn_resnet50.pth from Chromas2025.zip there (only needed to fine-tune it)')
+    if problems:
+        return info
+    code = ('import importlib.util, json, pathlib, torch\n'
+            'spec = importlib.util.find_spec("chromas")\n'
+            'f = pathlib.Path(spec.origin).parent / "source" / "training" / "neural_net_training.py"\n'
+            'gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""\n'
+            'print(json.dumps({"torch": torch.__version__, "cuda": torch.version.cuda, "gpu": gpu, '
+            '"patched": "# training patch" in f.read_text(encoding="utf-8")}))')
+    try:
+        r = subprocess.run([str(st['python_exe']), '-c', code], cwd=str(st['home']), capture_output=True, text=True,
+                           timeout=180, encoding='utf-8', errors='replace')
+        if r.returncode != 0:
+            raise RuntimeError((r.stderr.strip().splitlines() or ['no output'])[-1])
+        info.update(json.loads(r.stdout.strip().splitlines()[-1]))
+    except Exception as exc:                                    # no torch, or the check itself failed
+        problems.append(f'could not ask the CHROMAS Python about PyTorch: {exc}')
+        return info
+    if not info['patched']:
+        problems.append('the CHROMAS training patch is not applied: run gillylab_chromas\\.venv\\Scripts\\python '
+                        'gillylab_chromas\\extras\\apply_patches.py once (without it chromas train stops at once)')
+    return info
+
+
+def network_command(input_dir, name, epochs=50, val_every=5, start_weights=None, st=None):
+    """The `chromas train` command that fine-tunes (or, without start_weights, trains) the network, as a list."""
+    st = st or settings()
+    cmd = [st['chromas_exe'], 'train', input_dir, '-m', NETWORK_ARCH, '-c', '2', '-e', int(epochs),
+           '-v', int(val_every), '-o', training_runs_dir(st) / name]
+    if start_weights:
+        cmd += ['--weights', start_weights]
+    return cmd
+
+
+def train_network(input_dir, name, epochs=50, val_every=5, start_weights=None, log=print):
+    """Fine-tune the CHROMAS network on a folder with images/ and masks/ (0/1 masks, two classes).
+
+    The run goes to <CHROMAS folder>/training_runs/<name>/ (created here: chromas train needs it to exist) and must not
+    exist yet.  MPLBACKEND=Agg keeps the two preview windows CHROMAS shows at the start from opening and waiting.
+    Returns the path of the trained .pth file."""
+    st = settings()
+    bad = check_install(st)
+    if bad:
+        raise RuntimeError('; '.join(bad))
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+', name or ''):
+        raise RuntimeError('the run name may contain only letters, digits, _ . and -.')
+    input_dir = Path(input_dir)
+    for sub in ('images', 'masks'):
+        if not any((input_dir / sub).glob('*.png')):
+            raise RuntimeError(f'No images in {input_dir / sub}: make the masks first.')
+    if start_weights and not Path(start_weights).is_file():
+        raise RuntimeError(f'Starting network not found: {start_weights}')
+    out = training_runs_dir(st) / name
+    if out.exists() and any(out.iterdir()):
+        raise RuntimeError(f'A training run called "{name}" already exists. Choose another name.')
+    out.mkdir(parents=True, exist_ok=True)
+    _stream(network_command(input_dir, name, epochs, val_every, start_weights, st), st['home'], log,
+            extra_env={'MPLBACKEND': 'Agg'})
+    model = out / f'{NETWORK_ARCH}_{int(epochs)}_best_model.pth'
+    if not model.exists():
+        raise RuntimeError('chromas finished but did not write the trained network; see the output above.')
+    return model
 
 
 # ── Quality-control videos ───────────────────────────────────────────────────────
