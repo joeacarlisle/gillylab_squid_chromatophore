@@ -452,9 +452,10 @@ class TrainingTab:
             if gpu:
                 lines.append(f'- {ok} NVIDIA GPU: {gpu} (PyTorch {torch_v}, CUDA {info.get("cuda")})')
             elif not info.get('cuda'):
-                lines.append(f'- {warn} PyTorch {torch_v} in the CHROMAS environment is the **CPU-only build**: it '
-                             'cannot use a GPU even if this computer has one, so ' + slow + '. To use a GPU here, '
-                             'install a CUDA build of PyTorch in the CHROMAS environment (pytorch.org).')
+                lines.append(f'- {warn} The PyTorch installed in CHROMAS ({torch_v}) is the **CPU-only build**, so '
+                             'this install cannot use a GPU: ' + slow + '. Installing a **CUDA build** of PyTorch there '
+                             'gives GPU and CPU support in one install: it uses an NVIDIA GPU when the computer has one '
+                             'and the CPU when it does not.')
             else:
                 lines.append(f'- {warn} PyTorch {torch_v} can use an NVIDIA GPU (CUDA {info["cuda"]}), but **none was '
                              'found**: no card, or its driver is missing or too old. So ' + slow + '.')

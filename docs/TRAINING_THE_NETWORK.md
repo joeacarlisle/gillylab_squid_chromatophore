@@ -14,7 +14,7 @@ What you need:
 |---|---|
 | Time | about a day of painting for 20-30 frames (less when you correct drafts, step 2); training from an hour on a GPU to much longer on a CPU |
 | Software | this project's environment (steps 1-3), the CHROMAS environment `gillylab_chromas\.venv` (steps 4-5), and an image editor with layers (GIMP is free) |
-| Hardware | the CHROMAS paper says training needs an NVIDIA GPU. It can start on a CPU after the patch below, but no CPU training run has been timed on this laptop; for real work use a GPU machine (for example a cloud GPU instance) |
+| Hardware | the CHROMAS paper says training needs an NVIDIA GPU. It can start on a CPU after the patch below, but no CPU training run has been timed on this laptop; for real work use a GPU machine (for example a cloud GPU instance). See "CPU or GPU: which PyTorch" below |
 | CHROMAS patch | run `gillylab_chromas\.venv\Scripts\python gillylab_chromas\extras\apply_patches.py` once. Without it, `chromas train` stops at once with the installed PyTorch (see "Known problems") |
 
 How CHROMAS trains (read from its code, version 0.1.1): it reads pairs of PNG images and masks, cuts them into
@@ -281,6 +281,58 @@ solid.
 ```
 python chromas_bridge.py run <video> --method neuralnet --weights <chromas folder>\training_runs\squid_v1\fcn_resnet50_50_best_model.pth
 ```
+
+---
+
+## CPU or GPU: which PyTorch
+
+`setup.bat` installs the **CPU-only build** of PyTorch in the CHROMAS environment (`2.15.0+cpu`), because it is a much
+smaller download. That build can never use a GPU, even on a computer that has one; step 0 of the Training tab says so,
+and *Use GPU* in the Datasets tab is greyed out.
+
+**On a computer without an NVIDIA graphics card, keep the CPU build.** A CUDA build would also run on the CPU there, so
+it gives nothing extra, after a download of several gigabytes. Train the random forest here, try the network with few
+passes, and do real network training on a GPU machine (Training tab, example 4).
+
+**On a computer with an NVIDIA card**, a CUDA build of PyTorch gives GPU and CPU support in one install: it uses the GPU
+when one is there and the CPU when it is not, because CHROMAS's training, scoring and (patched) neural-net segmentation
+all choose "GPU if available, otherwise CPU". Only one card is used: the first one (set `CUDA_VISIBLE_DEVICES` before
+starting the dashboard or a command to choose another). Only PyTorch is replaced; CHROMAS and its other packages stay.
+
+PyTorch 2.15.0 for Windows and Python 3.12 is published as CUDA 13.2 (`cu132`) and CUDA 13.4 (`cu134`) builds. The
+installed `torchvision 0.29.2` and `torchaudio 2.11.1` work with any PyTorch 2.14 or newer, so they stay.
+
+1. **Check the NVIDIA driver.** Run `nvidia-smi`; *CUDA Version* in its top right corner must be at least 13.2 for the
+   `cu132` build (13.4 for `cu134`). If it is lower, update the driver first.
+2. **Replace PyTorch** in the CHROMAS environment (a download of several gigabytes):
+
+   ```
+   cd C:\Users\joeac\gillylab_chromas
+   .venv\Scripts\activate
+   pip install torch==2.15.0+cu132 --index-url https://download.pytorch.org/whl/cu132 --force-reinstall --no-deps
+   ```
+
+   For CUDA 13.4 write `cu134` in both places. `--no-deps` replaces only PyTorch and leaves the other packages as they are.
+3. **Check it:**
+
+   ```
+   .venv\Scripts\python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+   ```
+
+   `2.15.0+cu132 13.2 True` means the GPU is ready; `False` means no usable card or driver (it then runs on the CPU).
+4. **Restart the dashboard.** Step 0 of the Training tab shows the card with a tick, and *Use GPU* in the Datasets tab
+   can be ticked again.
+
+**To go back to the CPU build:**
+
+```
+pip install torch==2.15.0+cpu --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-deps
+```
+
+**Note:** running `setup.bat` again puts the CPU build back (its step 4 installs from the CPU index). After rebuilding
+the environment on a GPU machine, repeat step 2.
+
+These commands were not run on this laptop (it has the CPU build); the build names come from PyTorch's package index.
 
 ---
 
